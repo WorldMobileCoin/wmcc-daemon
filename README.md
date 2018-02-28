@@ -13,7 +13,7 @@ Official website: https://www.worldmobilecoin.com
 NodeJS (v8.0.0+) https://nodejs.org/en/  
 GIT (v2) https://git-scm.com/downloads  
 A proper C/C++ compiler:
-> g++/gcc (Unix) 
+> g++/gcc (Unix)  
 > Microsoft Visual C++ Build Tools (Windows)  
 
 ** Please refer to [node-gyp](https://github.com/nodejs/node-gyp) for native build
