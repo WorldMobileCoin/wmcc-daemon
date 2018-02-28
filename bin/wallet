@@ -1,0 +1,615 @@
+#!/usr/bin/env node
+
+'use strict';
+
+const EventEmitter = require('events');
+const Stream = require('stream');
+const readline = require('readline');
+const assert = require('assert');
+const Core = require('wmcc-core');
+const {fullnode} = require('wmcc-node');
+
+class Wallet extends EventEmitter {
+  /**
+   * Create a wallet.
+   * @constructor
+   * @param {Object} options
+   */
+
+  constructor(options) {
+    super();
+
+    this.options = new WalletOptions(options);
+
+    this.node = new fullnode(this.options);
+    this.console = new Console();
+    this.step = new Steps(this.node, this.console);
+
+    this._init();
+  }
+
+  _init() {
+    console.log(`\nPlease enter your choice: \n1) Create Wallet \n2) Get Passphrase \n3) Wallet List \n4) Quit \n`);
+    this.console.prompt('>', (str) => {
+      console.log('\r');
+      switch (str) {
+        case '1':
+          this.step.initCreate();
+          break;
+        case '2':
+          this.step.initLogin();
+          break;
+        case '3':
+          this.step.listWallet();
+          break;
+        case '4':
+          process.exit(0);
+          break;
+        default:
+          console.log('Invalid options! Please type 1, 2, 3 or 4.');
+      }
+    });
+  }
+}
+
+/**
+ * Wallet Options
+ */
+
+class WalletOptions {
+  /**
+   * Create wallet options.
+   * @constructor
+   * @param {Object} options
+   */
+
+  constructor(options) {
+    this.config = true;
+    this.argv = true;
+    this.env = true;
+    this.logFile = true;
+    this.logConsole = false;
+    this.logLevel = 'debug';
+    this.db = 'leveldb';
+    this.persistent = true;
+    this.workers = true;
+    this.listen = true;
+    this.loader = require;
+
+    this.fromOptions(options);
+  }
+
+  fromOptions(options) {
+    if (!options)
+      return this;
+
+    if (options.config != null) {
+      assert(typeof options.config === 'boolean');
+      this.config = options.config;
+    }
+
+    if (options.argv != null) {
+      assert(typeof options.argv === 'boolean');
+      this.argv = options.argv;
+    }
+
+    if (options.env != null) {
+      assert(typeof options.env === 'boolean');
+      this.env = options.env;
+    }
+
+    if (options.logFile != null) {
+      assert(typeof options.logFile === 'boolean');
+      this.logFile = options.logFile;
+    }
+
+    if (options.logConsole != null) {
+      assert(typeof options.logConsole === 'boolean');
+      this.logConsole = options.logConsole;
+    }
+
+    if (options.logLevel != null) {
+      assert(typeof options.logLevel === 'string');
+      this.logLevel = options.logLevel;
+    }
+
+    if (options.db != null) {
+      assert(typeof options.db === 'string');
+      this.db = options.db;
+    }
+
+    if (options.persistent != null) {
+      assert(typeof options.persistent === 'boolean');
+      this.persistent = options.persistent;
+    }
+
+    if (options.listen != null) {
+      assert(typeof options.listen === 'boolean');
+      this.listen = options.listen;
+    }
+
+    if (options.loader != null) {
+      assert(typeof options.loader === 'object');
+      this.loader = options.loader;
+    }
+    return this;
+  }
+
+  static fromOptions(options) {
+    return new this().fromOptions(options);
+  }
+}
+
+/**
+ * Steps
+ */
+
+class Steps {
+  /**
+   * Steps for wallet.
+   * @constructor
+   * @param {Object} options
+   */
+
+  constructor(node, console) {
+    this.node = node;
+    this.auth = node.auth;
+    this.walletdb = node.walletdb;
+    this.chain = node.chain;
+    this.console = console;
+
+    this.wallet = null;
+    this.hsm = null;
+    this.decrypt = null;
+    this._walletdb = null;
+  }
+
+  initCreate() {
+    this.console.prompt('Enter Wallet Name (max: 32 chars):', async (answer) => {
+      if (answer.length > 32)
+        return this.error('Wallet Name too long, maximum 32 characters.', 'initCreate');
+      if (!Core.common.isName(answer))
+        return this.error('Invalid wallet name.', 'initCreate');
+      if (this.walletlist().includes(answer))
+        return this.error(`Wallet \`${answer}\` exists, please select another name.`, 'initCreate');
+
+      this.createdob({name: answer});
+    });
+  }
+
+  createdob(obj) {
+    this.console.prompt('Enter D.O.B, DD-MM-YYYY (Eg. 28-07-1981):', async (answer) => {
+      if (!answer.match(/^\d{2}[-]\d{2}[-]\d{4}$/))
+        return this.error('Invalid date format.', 'createdob', obj);
+
+      obj.dob = answer;
+      obj.count = 1;
+      this.createhint(obj);
+    });
+  }
+
+  createhint(obj) {
+    if (obj.count === 1)
+      obj.secret = [];
+
+    this.console.prompt(`Enter secret question / hint #${obj.count} (max: 32 chars):`, async (answer) => {
+      if (answer.length > 32)
+        return this.error('Hint too long, maximum 32 characters.', 'createHint', obj);
+
+      obj.question = answer;
+      this.createpassword(obj);
+    });
+  }
+
+  createpassword(obj) {
+    this.console.mute();
+    this.console.prompt(`Enter secret answer / password #${obj.count}:`, async (answer) => {
+      if (!answer)
+        return this.error('Password cannot be empty', 'createpassword', obj);
+
+      obj.secret.push({question: obj.question, answer: answer});
+      this.console.unmute();
+      this.createwallet(obj);
+    });
+  }
+
+  createwallet(obj) {
+    this.console.prompt(`Enter 1 to create wallet or enter 2 to add another secret:`, async (answer) => {
+      if (answer === '1') {
+        try {
+          console.log('\nCreating wallet..\nPlease wait while wallet scanning blocks...');
+          const tempdb = Core.walletdb(this.walletdb.options);
+          await this.node.ensure();
+          await this.auth.saveWallet(tempdb, this.chain, obj.name, obj.dob, obj.secret);
+          console.log('Wallet created!');
+          process.exit(0);
+        } catch (e) {
+          console.log(e);
+        }
+      } else if (answer === '2') {
+        obj.count++;
+        this.createhint(obj);
+      } else {
+        return this.error('Invalid options!', 'createwallet', obj);
+      }
+    });    
+  }
+
+  initLogin() {
+    this.console.prompt('Enter Wallet Name:', async (answer) => {
+      this.logindob(answer);
+    });
+  }
+
+  logindob(str) {
+    this.console.prompt('Enter D.O.B, DD-MM-YYYY (Eg. 28-07-1981):', async (answer) => {
+      if (!answer.match(/^\d{2}[-]\d{2}[-]\d{4}$/))
+        return this.error('Invalid date format.', 'logindob', str);
+
+      try {
+        const suffix = this.auth.toSuffix(str);
+
+        this._walletdb = Core.walletdb(this.walletdb.options);
+        this._walletdb.suffix(suffix);
+
+        await this.node.ensure();
+        await this.auth.tempopen(this._walletdb, this.node.chain);
+
+        this.wallet = await this._walletdb.get(str);
+        this.hsm = this.auth.hsm;
+        this.loginanswer(answer);
+      } catch (e) {
+        if (e.message.includes('LockFile'))
+          console.log('Wallet database in use! Please stop the daemon first and try again.');
+        else
+          console.log(e);
+      }
+    });
+  }
+
+  async loginanswer(str) {
+    this.console.mute();
+    try {
+      this.decrypt = await this.hsm.decrypt(this.wallet.id, str, this.wallet.lock);
+    } catch (e) {
+      console.log('Wallet Name and D.O.B mismatch! Please try again.');
+      process.exit(0);
+    }
+
+    this.console.prompt(`Enter Password (Hint: ${this.decrypt.question.toString().replace(/"/g, '&quot;').trim()}):`, (answer) => {
+      this.loginanswers(answer);
+    });
+  }
+
+  async loginanswers(str) {    
+    this.decrypt = await this.hsm.setAnswer(str);
+
+    if (this.decrypt.question) {
+      this.console.prompt(`Enter Password (Hint: ${this.decrypt.question.toString().replace(/"/g, '&quot;').trim()}):`, async (answer) => {
+        this.loginanswers(answer);
+      });
+    } else {
+      if(this.wallet.chksum.toString() === this.decrypt.passphrase.slice(0, 4).toString())
+        console.log(`\nYour Passphrase: ${this.decrypt.passphrase.toString('hex')}`);
+      else
+        console.log(`Wrong Password! Please try again.`);
+
+      this.console.unmute();
+      process.exit(0);
+    }
+  }
+
+  listWallet() {
+    let count = 0;
+    for (let wallet of this.walletlist()) {
+      console.log(`${count++}) ${wallet}`);
+    }
+  }
+
+  walletlist() {
+    const wallets = this.walletdb.list();
+    const names = [];
+
+    if (wallets.length === 0)
+      return names;
+  
+    for (let wallet of wallets) {
+      const name = wallet.split('.').shift();
+      try {
+        const wid = this.auth.fromSuffix(name);
+        names.push(wid);
+      } catch (e) {;}
+    }
+    return names.sort();
+  }
+
+  error(msg, fn, args) {
+    console.error(msg);
+    return this[fn](args);
+  }
+}
+
+class Console {
+
+  constructor(options) {
+    this.options = new ConsoleOptions(options);
+
+    this.input = this.options.input;
+    this.output = this.options.output;
+    this.silent = this.options.silent;
+    this.terminal = this.options.terminal;
+    this.replace = this.options.replace;
+
+    this.called = false;
+    this.rl = null;
+    this.cb = null;
+  }
+
+  prompt(str, cb) {
+    const prompt = (str || '') + ' '
+    const mute = new Mute({ replace: this.replace, prompt: prompt });
+    this.cb = cb;
+
+    mute.pipe(this.output, {end: false});
+    this.output = mute;
+
+    const rlOptions = { input: this.input, output: this.output, terminal: this.terminal };
+    this.rl = readline.createInterface(rlOptions);
+
+    this.output.unmute();
+    this.rl.setPrompt(prompt);
+    this.rl.prompt();
+    if (this.silent)
+      this.output.mute();
+
+    const self = this;
+
+    this.rl.on('line', line);
+    this.rl.on('error', error);
+    this.rl.on('SIGINT', function () {
+      self.rl.close();
+      console.log('\n\nCanceled...');
+      process.exit(0);
+    });
+
+
+    function done() {
+      self.called = true;
+      self.rl.close();
+      self.output.mute();
+      self.output.end();
+    }
+
+    function next() {
+      self.rl.close();
+    }
+
+    function error(e) {
+      if (self.called)
+        return;
+
+      done();
+      return self.cb(e);
+    }
+
+    function line(line) {
+      if (self.called)
+        return;
+
+      if (self.silent && self.terminal) {
+        self.output.unmute();
+      }
+
+      next();
+
+      line = line.replace(/\r?\n$/, '');
+      self.cb(line);
+    }
+  }
+
+  mute() {
+    this.silent = true;
+  }
+
+  unmute() {
+    this.silent = false;
+  }
+}
+
+class ConsoleOptions {  
+  constructor(options) {
+    this.input = process.stdin;
+    this.output = process.stdout;
+    this.silent = false;
+    this.replace = '*';
+    this.terminal = this.output.isTTY;
+
+    this.fromOptions(options);
+  }
+
+  fromOptions(options) {
+    if (!options)
+      return this;
+
+    if (options.input != null) {
+      assert(typeof options.input === 'object');
+      this.input = options.input;
+    }
+
+    if (options.output != null) {
+      assert(typeof options.output === 'object');
+      this.output = options.output;
+    }
+
+    if (options.silent != null) {
+      assert(typeof options.silent === 'boolean');
+      this.silent = options.silent;
+    }
+
+    if (options.replace != null) {
+      assert(typeof options.replace === 'string');
+      this.replace = options.replace;
+    }
+
+    if (options.terminal != null) {
+      assert(typeof options.terminal === 'boolean');
+      this.terminal = options.terminal;
+    }
+
+    return this;
+  }
+
+  static fromOptions(options) {
+    return new this().fromOptions(options);
+  }
+}
+
+class Mute extends Stream{  
+  constructor(options) {
+    super();
+
+    options = options || {};
+    this.writable = true;
+    this.readable = true;
+    this.muted = false;
+
+    this.on('pipe', this._onpipe);
+    this.replace = options.replace;
+    this._prompt = options.prompt || null;
+    this._hadControl = false;
+  }
+
+  mute() {
+    this.muted = true;
+  }
+
+  unmute() {
+    this.muted = false;
+  }
+
+  pipe(dest, options) {
+    this._dest = dest;
+    return Stream.prototype.pipe.call(this, dest, options);
+  }
+
+  pause() {
+    if (this._src)
+      return this._src.pause()
+  }
+
+  resume() {
+    if (this._src)
+      return this._src.resume()
+  }
+
+  write(c) {
+    if (this.muted) {
+      if (!this.replace) return true
+      if (c.match(/^\u001b/)) {
+        if(c.indexOf(this._prompt) === 0) {
+          c = c.substr(this._prompt.length);
+          c = c.replace(/./g, this.replace);
+          c = this._prompt + c;
+        }
+        this._hadControl = true
+        return this.emit('data', c)
+      } else {
+        if (this._prompt && this._hadControl &&
+            c.indexOf(this._prompt) === 0) {
+          this._hadControl = false
+          this.emit('data', this._prompt)
+          c = c.substr(this._prompt.length)
+        }
+        c = c.toString().replace(/./g, this.replace)
+      }
+    }
+    this.emit('data', c)
+  }
+
+  end(c) {
+    if (this.muted) {
+      if (c && this.replace) {
+        c = c.toString().replace(/./g, this.replace)
+      } else {
+        c = null
+      }
+    }
+    if (c) this.emit('data', c)
+    this.emit('end')
+  }
+
+  destroy() {
+    proxy('destroy');
+  }
+
+  destroySoon() {
+    proxy('destroySoon');
+  }
+
+  close() {
+    proxy('close');
+  }
+}
+
+Object.defineProperty(Mute.prototype, 'constructor', {
+  value: Mute,
+  enumerable: false
+});
+
+Object.defineProperty(Mute.prototype, '_onpipe', {
+  value: function onPipe (src) {
+    this._src = src
+  },
+  enumerable: false,
+  writable: true,
+  configurable: true
+});
+
+Object.defineProperty(Mute.prototype, 'isTTY', {
+  get: function getIsTTY () {
+    return( (this._dest) ? this._dest.isTTY
+      : (this._src) ? this._src.isTTY
+      : false
+      )
+  },
+  set: function setIsTTY (isTTY) {
+    Object.defineProperty(Mute.prototype, 'isTTY', {
+      value: isTTY,
+      enumerable: true,
+      writable: true,
+      configurable: true
+    })
+  },
+  enumerable: true,
+  configurable: true
+});
+
+Object.defineProperty(Mute.prototype, 'rows', {
+  get: function () {
+    return( this._dest ? this._dest.rows
+      : this._src ? this._src.rows
+      : undefined )
+  }, enumerable: true, configurable: true
+});
+
+Object.defineProperty(Mute.prototype, 'columns', {
+  get: function () {
+    return( this._dest ? this._dest.columns
+      : this._src ? this._src.columns
+      : undefined )
+  }, enumerable: true, configurable: true
+});
+
+function proxy (fn) {
+  return function () {
+    var d = this._dest
+    var s = this._src
+    if (d && d[fn]) d[fn].apply(d, arguments)
+    if (s && s[fn]) s[fn].apply(s, arguments)
+  }
+}
+
+/*
+ * Expose
+ */
+module.exports = new Wallet();

@@ -1,0 +1,35 @@
+#!/bin/bash
+
+_perl=0
+_cmd='node'
+
+if ! type perl > /dev/null 2>& 1; then
+  if uname | grep -i 'darwin' > /dev/null; then
+    echo 'WMCC requires perl to start on OSX.' >& 2
+    exit 1
+  fi
+  _perl=1
+fi
+
+if test $_perl -eq 1; then
+  _file=$(readlink -f "$0")
+else
+  # OSX
+  _file=$(perl -MCwd -e "print Cwd::realpath('$0')")
+fi
+
+_dir=$(dirname "$_file")
+
+if ! type setsid > /dev/null 2>& 1; then
+# OSX and WIN
+  (
+    "${_dir}/${_cmd}" "$@" > /dev/null 2>& 1 &
+    echo "PID: $!"
+  )
+  exit 0
+fi
+(
+  setsid "${_cmd}/${_cmd}" "$@" > /dev/null 2>& 1 &
+  echo "PID: $!"
+)
+exit 0

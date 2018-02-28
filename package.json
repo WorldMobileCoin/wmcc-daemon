@@ -1,0 +1,41 @@
+{
+  "name": "wmcc-daemon",
+  "version": "1.0.0-beta.1",
+  "release": "28 Febraury 2018",
+  "productName": "wmcc-daemon",
+  "description": "WorldMobileCoin © WMCC Daemon",
+  "homepage": "https://github.com/WorldMobileCoin/wmcc-daemon",
+  "repository": "git://github.com/WorldMobileCoin/wmcc-daemon.git",
+  "bugs": {
+    "url": "https://github.com/WorldMobileCoin/wmcc-daemon/issues"
+  },
+  "author": "ParkAlter@WorldMobileCoin <worldmobilecoin@gmail.com>",
+  "main": "./lib/wmcc-daemon.js",
+  "keywords": [
+    "worldmobilecoin",
+    "wmcc-node",
+    "wmcc-desktop",
+    "wmcc-application",
+    "wmcc-daemon",
+    "daemon",
+    "service",
+    "transaction",
+    "address",
+    "network",
+    "p2p",
+    "cryptocurrency",
+    "blockchain"
+  ],
+  "engines": {
+    "node": ">=8.0.0"
+  },
+  "dependencies": {
+    "wmcc-node": "*",
+    "node-x15": "*",
+    "leveldown": "1.7.2",
+    "secp256k1": "3.3.0",
+    "socket.io": "2.0.3",
+    "socket.io-client": "2.0.3"
+  },
+  "license": "MIT"
+}
