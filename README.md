@@ -9,9 +9,9 @@ __NOTE__: The first release of wmcc-daemon.
 Official website: https://www.worldmobilecoin.com
 
 ## Installation Prerequisites
-NodeJS (v8.0.0+) https://nodejs.org/en/ 
-GIT (v2) https://git-scm.com/downloads 
-A proper C/C++ compiler: 
+NodeJS (v8.0.0+) https://nodejs.org/en/  
+GIT (v2) https://git-scm.com/downloads  
+A proper C/C++ compiler:  
 - g++/gcc (Unix) 
 - Microsoft Visual C++ Build Tools (Windows) 
 ** Please refer to [node-gyp](https://github.com/nodejs/node-gyp) for native build
