@@ -82,7 +82,7 @@ $ ./bin/wmccd --stop
 ```
 
 ## API Documentation
-http://api.worldmobiecoin.com/
+http://api.worldmobilecoin.com/
 
 ## Disclaimer
 
