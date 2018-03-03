@@ -24,12 +24,20 @@ if ! type setsid > /dev/null 2>& 1; then
 # OSX and WIN
   (
     "${_dir}/${_cmd}" "$@" > /dev/null 2>& 1 &
-    echo "PID: $!"
+    if test x"$1" = x'stop'; then
+      echo "Stopping..."
+    else
+      echo "PID: $!"
+    fi
   )
   exit 0
 fi
 (
   setsid "${_cmd}/${_cmd}" "$@" > /dev/null 2>& 1 &
-  echo "PID: $!"
+  if test x"$1" = x'stop'; then
+    echo "Stopping..."
+  else
+    echo "PID: $!"
+  fi
 )
 exit 0

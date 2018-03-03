@@ -76,8 +76,13 @@ $ ./bin/wmccd --wallet [walletname]
 * To make sure wmcc daemon is running, enter [IP]:7880 eg. http://127.0.0.1:7880 in your browser.
 ```
 
+## Stop Daemon
+```
+$ ./bin/wmccd --stop
+```
+
 ## API Documentation
-https://docs.worldmobiecoin.com/api
+http://api.worldmobiecoin.com/
 
 ## Disclaimer
 

@@ -19,67 +19,83 @@ if (process.argv.indexOf('--version') !== -1
   throw new Error('Could not exit.');
 }
 
-const {fullnode} = require('wmcc-node');
+if (process.argv.indexOf('stop') !== -1) {
+  const Core = require('wmcc-core');
+  const rpc = new Core.http.RPCClient({
+    network: 'mainnet'
+  });
+  (async () => {
+    const res = await rpc.execute('stop');
 
-const node = new fullnode({
-  config: true,
-  argv: true,
-  env: true,
-  logFile: true,
-  logConsole: true,
-  logBrowser: false,
-  logLevel: 'info',
-  db: 'leveldb',
-  persistent: true,
-  workers: true,
-  listen: true,
-  loader: require
-});
-
-let wid;
-if (!(node.config.str('wallet')
-  || process.argv.indexOf('--wallet') !== -1
-  || process.argv.indexOf('-w') !== -1)) {
-  console.log('Please set wallet name in argument eg. --wallet "my wallet" \nor in wmcc.conf eg. wallet=my wallet');
-  process.exit(1);
-  throw new Error('Could not exit.');
+    console.log(res);
+    process.exit(0);
+  })().catch((err) => {
+    console.error(err.stack);
+    process.exit(1);
+  });
 } else {
-  let addr, pos = 0;
+  const {fullnode} = require('wmcc-node');
 
-  if (process.argv.indexOf('--wallet') !== -1)
-    pos = process.argv.indexOf('--wallet') + 1;
-  else 
-    pos = process.argv.indexOf('-w') + 1;
+  const node = new fullnode({
+    config: true,
+    argv: true,
+    env: true,
+    logFile: true,
+    logConsole: true,
+    logBrowser: false,
+    logLevel: 'info',
+    db: 'leveldb',
+    persistent: true,
+    workers: true,
+    listen: true,
+    loader: require
+  });
 
-  if (pos)
-    wid = process.argv[pos];
-  else
-    wid = node.config.str('wallet');
+  let wid;
+  if (!(node.config.str('wallet')
+    || process.argv.indexOf('--wallet') !== -1
+    || process.argv.indexOf('-w') !== -1)) {
+    console.log('Please set wallet name in argument eg. --wallet "my wallet" \nor in wmcc.conf eg. wallet=my wallet');
+    process.exit(1);
+    throw new Error('Could not exit.');
+  } else {
+    let addr, pos = 0;
 
-  const suffix = node.auth.toSuffix(wid);
-  node.walletdb.suffix(suffix);
-}
+    if (process.argv.indexOf('--wallet') !== -1)
+      pos = process.argv.indexOf('--wallet') + 1;
+    else 
+      pos = process.argv.indexOf('-w') + 1;
 
-process.on('unhandledRejection', (err, promise) => {
-  throw err;
-});
+    if (pos)
+      wid = process.argv[pos];
+    else
+      wid = node.config.str('wallet');
 
-(async () => {
-  if (!node.config.str('coinbase-address')) {
-    if (node.miner.addresses.length === 0) {
-      await node.chain.open();
-      await node.walletdb.open();
-      const wallet = await node.walletdb.get(wid);
-      node.miner.addAddress(wallet.getReceive('hex').toString());
-      await node.walletdb.close();
-      await node.chain.close();
-    }
+    const suffix = node.auth.toSuffix(wid);
+    node.walletdb.suffix(suffix);
   }
-  await node.ensure();
-  await node.open();
-  await node.connect();
-  node.startSync();
-})().catch((err) => {
-  console.error(err.stack);
-  process.exit(1);
-});
+
+  process.on('unhandledRejection', (err, promise) => {
+    throw err;
+  });
+
+  (async () => {
+    if (!node.config.str('coinbase-address')) {
+      if (node.miner.addresses.length === 0) {
+        await node.chain.open();
+        await node.walletdb.open();
+        const wallet = await node.walletdb.get(wid);
+        node.miner.addAddress(wallet.getReceive('hex').toString());
+        await node.walletdb.close();
+        await node.chain.close();
+      }
+    }
+    await node.ensure();
+    await node.open();
+    await node.connect();
+    node.startSync();
+  })().catch((err) => {
+    console.error(err.stack);
+    process.exit(1);
+  });
+}
